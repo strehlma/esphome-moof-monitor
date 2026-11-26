@@ -1,0 +1,139 @@
+# VanMoof Monitor - one bike.
+#
+# Include once per bike from the device configuration:
+#
+#   packages:
+#     bike1: !include
+#       file: vanmoof/bike.yaml
+#       vars:
+#         bike_id: bike1                 # unique, letters/digits/underscore
+#         bike_name: "My S3"             # shown in Home Assistant
+#         mac_address: !secret bike1_mac
+#         encryption_key: !secret bike1_encryption_key
+#         key_id: !secret bike1_key_id
+#
+# Each bike becomes its own device in Home Assistant (a sub-device of the
+# monitor), named bike_name, with the entities Battery, Distance, Lock State,
+# In Range, Charging, Module Battery, Alarm, Alarm Setting, Module State,
+# Error Code, Signal Strength, Firmware and Frame Number. The component version
+# appears in the monitor's device info as firmware "1.11.0 (ESPHome x.y.z)".
+# Signal Strength comes from advertisements; the S3 keeps advertising while connected.
+
+esphome:
+  # Identical in every bike include, so the merge keeps one entry. The version
+  # must match COMPONENT_VERSION in components/vanmoof_ble/__init__.py (checked
+  # at compile time).
+  project:
+    name: "vanmoof_monitor.esp32"
+    version: "1.11.0"
+  devices:
+    - id: ${bike_id}_device
+      name: "${bike_name}"
+      relation: via   # reached through the monitor (HA "connected via")
+
+ble_client:
+  - mac_address: ${mac_address}
+    id: ${bike_id}_client
+    auto_connect: true
+
+vanmoof_ble:
+  - id: ${bike_id}
+    ble_client_id: ${bike_id}_client
+    encryption_key: ${encryption_key}
+    key_id: ${key_id}
+    # Keep the link open between reads. A new connection may wake the bike
+    # from deep sleep, and it then plays a short tune; with a held link the
+    # bike stays awake, and new connections happen only after a lost link.
+    keep_connected: true
+
+binary_sensor:
+  # Advertisement received in the last 5 minutes (internal helper)
+  - platform: ble_presence
+    mac_address: ${mac_address}
+    name: "Advertising"
+    id: ${bike_id}_advertising
+    internal: true
+
+  # In range: advertising, or connected
+  - platform: template
+    name: "In Range"
+    id: ${bike_id}_in_range
+    device_id: ${bike_id}_device
+    icon: "mdi:bike"
+    lambda: |-
+      return id(${bike_id}_advertising).state || id(${bike_id}_client).connected();
+
+  - platform: vanmoof_ble
+    vanmoof_ble_id: ${bike_id}
+    lock_state:
+      name: "Lock State"
+      device_id: ${bike_id}_device
+      icon: "mdi:lock"
+    charging:
+      name: "Charging"
+      device_id: ${bike_id}_device
+
+sensor:
+  - platform: ble_rssi
+    mac_address: ${mac_address}
+    name: "Signal Strength"
+    id: ${bike_id}_rssi
+    device_id: ${bike_id}_device
+    icon: "mdi:signal"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    filters:
+      - timeout: 10min    # no advertisement for 10 min: unknown
+      - throttle: 30s     # at most one value every 30 s ...
+      - delta: 5.0        # ... and only if it moved by 5 dBm or more
+
+  - platform: vanmoof_ble
+    vanmoof_ble_id: ${bike_id}
+    battery_level:
+      name: "Battery"
+      device_id: ${bike_id}_device
+      icon: "mdi:battery"
+      # Report every reading, also unchanged ones: automations can then tell
+      # whether the bike was read recently (last_reported in Home Assistant).
+      force_update: true
+    distance:
+      name: "Distance"
+      device_id: ${bike_id}_device
+      icon: "mdi:map-marker-distance"
+    module_battery_level:
+      name: "Module Battery"
+      device_id: ${bike_id}_device
+      entity_category: diagnostic
+    error_code:
+      name: "Error Code"
+      device_id: ${bike_id}_device
+      icon: "mdi:alert-circle-outline"
+      entity_category: diagnostic
+
+text_sensor:
+  - platform: vanmoof_ble
+    vanmoof_ble_id: ${bike_id}
+    frame_number:
+      name: "Frame Number"
+      device_id: ${bike_id}_device
+      icon: "mdi:identifier"
+      entity_category: diagnostic
+    alarm:
+      name: "Alarm"
+      device_id: ${bike_id}_device
+      icon: "mdi:shield-bike"
+    alarm_setting:
+      name: "Alarm Setting"
+      device_id: ${bike_id}_device
+      icon: "mdi:shield-cog"
+      entity_category: diagnostic
+    module_state:
+      name: "Module State"
+      device_id: ${bike_id}_device
+      icon: "mdi:chip"
+      entity_category: diagnostic
+    firmware:
+      name: "Firmware"
+      device_id: ${bike_id}_device
+      icon: "mdi:update"
+      entity_category: diagnostic

@@ -1,0 +1,19 @@
+# ESPHome build output
+/.esphome/
+.esphome/
+
+# Secrets: never commit real values
+secrets.yaml
+secrets.yaml.*
+!secrets.example.yaml
+
+# Backups and caches
+*.bak
+*.bak-*
+*~
+__pycache__/
+*.pyc
+archive/
+
+# OS files
+.DS_Store

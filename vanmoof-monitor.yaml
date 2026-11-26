@@ -1,0 +1,93 @@
+# VanMoof Monitor - example device configuration for ESPHome.
+#
+# Copy this file, vanmoof/ and components/ into your ESPHome config folder,
+# create secrets.yaml from secrets.example.yaml, and adjust the bikes below.
+
+packages:
+  # One entry per bike. The name is shown in Home Assistant; MAC address,
+  # encryption key and key ID come from secrets.yaml.
+  bike1: !include
+    file: vanmoof/bike.yaml
+    vars:
+      bike_id: bike1
+      bike_name: "Bike 1"
+      mac_address: !secret bike1_mac
+      encryption_key: !secret bike1_encryption_key
+      key_id: !secret bike1_key_id
+  # Second bike (optional). Remove this block if you only have one bike.
+  bike2: !include
+    file: vanmoof/bike.yaml
+    vars:
+      bike_id: bike2
+      bike_name: "Bike 2"
+      mac_address: !secret bike2_mac
+      encryption_key: !secret bike2_encryption_key
+      key_id: !secret bike2_key_id
+
+esphome:
+  name: vanmoof-monitor
+  # The dashboard card finds the bikes through this device name.
+  friendly_name: VanMoof Monitor
+  comment: ESP32 BLE monitor for VanMoof S3/X3 bikes
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+    sdkconfig_options:
+      # Keep the bikes' service list in flash. The component clears it at
+      # boot and whenever it looks outdated.
+      CONFIG_BT_GATTC_CACHE_NVS_FLASH: y
+
+# INFO keeps the log short. For troubleshooting set DEBUG and flash again;
+# logger.set_level can only raise the level up to the one compiled in.
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Fallback hotspot (captive portal) in case the WiFi connection fails
+  ap:
+    ssid: "VanMoof-Monitor"
+    password: !secret fallback_ap_password
+
+captive_portal:
+
+# The vanmoof_ble component from the local components/ folder
+external_components:
+  - source:
+      type: local
+      path: components
+
+esp32_ble_tracker:
+  scan_parameters:
+    # Window <= 600 ms so WiFi gets airtime on the shared radio
+    interval: 320ms
+    window: 300ms
+    # Short scan window while a bike is connected, so service discovery
+    # and the login finish well within the ~10 s the S3 allows
+    connection_scan_window: 30ms
+    active: true
+
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+    entity_category: diagnostic
+  - platform: uptime
+    name: "Uptime"
+    entity_category: diagnostic
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"

@@ -1,0 +1,394 @@
+blueprint:
+  name: VanMoof Monitor - charge the bike battery
+  description: 'Switches a smart plug for the bike charger on when the battery of
+    a bike read by the VanMoof Monitor (ESPHome) drops below a lower limit, and off
+    again once it is above an upper limit, charging has ended, or the bike has left.
+    Needs the Battery sensor with force_update (set in the monitor''s bike package).
+    The monitor reads a bike about every 5 minutes and only while it is in range,
+    so the plug is switched on only then. If the charger is not plugged into the bike,
+    the plug stays on and one warning is sent. The lower limit must be below the upper
+    limit. For battery care, keep the upper limit at about 80 % and use the optional
+    "full charge" switch before a long ride: it charges to 100 % once and then turns
+    itself off.
+
+    '
+  domain: automation
+  author: VanMoof Monitor
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    bike:
+      name: Bike
+      icon: mdi:bicycle-electric
+      input:
+        battery_sensor:
+          name: Battery
+          description: The bike's "Battery" sensor (not "Module Battery").
+          selector:
+            entity:
+              domain:
+              - sensor
+              device_class:
+              - battery
+              integration: esphome
+              multiple: false
+              reorder: false
+        charging_sensor:
+          name: Charging
+          description: The bike's "Charging" binary sensor.
+          selector:
+            entity:
+              domain:
+              - binary_sensor
+              device_class:
+              - battery_charging
+              integration: esphome
+              multiple: false
+              reorder: false
+        in_range_sensor:
+          name: In Range
+          description: The bike's "In Range" binary sensor.
+          selector:
+            entity:
+              domain:
+              - binary_sensor
+              integration: esphome
+              multiple: false
+              reorder: false
+    charger:
+      name: Charger
+      icon: mdi:power-socket-eu
+      input:
+        plug:
+          name: Smart plug
+          description: Switch that powers the bike's charger.
+          selector:
+            entity:
+              domain:
+              - switch
+              multiple: false
+              reorder: false
+        low_level:
+          name: Switch on below
+          description: The plug turns on when the battery drops below this level.
+          default: 30
+          selector:
+            number:
+              min: 5.0
+              max: 90.0
+              step: 1.0
+              unit_of_measurement: '%'
+              mode: slider
+        high_level:
+          name: Switch off above
+          description: 'The plug turns off once the battery is above this level (for
+            battery care about 80 %). 99 means it turns off at 100 %.
+
+            '
+          default: 80
+          selector:
+            number:
+              min: 10.0
+              max: 99.0
+              step: 1.0
+              unit_of_measurement: '%'
+              mode: slider
+        full_charge_switch:
+          name: Full charge switch (optional)
+          description: 'One input_boolean helper. While it is on, the bike charges
+            to 100 % regardless of the limits (starts with the next reading of the
+            bike); it turns off when the bike is full, or when charging stopped or
+            the bike left while the plug was on. If the bike is away, the request
+            waits until it is back. To cancel, turn the helper off (a plug switched
+            off by hand is switched on again). If the bike is unplugged during a full
+            charge, the request ends after 10 minutes without the "done" actions.
+
+            '
+          default: []
+          selector:
+            entity:
+              domain:
+              - input_boolean
+              multiple: true
+              reorder: false
+        off_when_charging_ends:
+          name: Switch off when charging ends
+          description: 'Also turn the plug off when the bike has stopped charging
+            for 10 minutes (charger finished, or bike unplugged). During a full charge
+            this always applies.
+
+            '
+          default: true
+          selector:
+            boolean: {}
+        left_delay:
+          name: Switch off after the bike left
+          description: 'Turn the plug off when the bike has been out of range this
+            long (always, independent of the option above).
+
+            '
+          default: 10
+          selector:
+            number:
+              min: 5.0
+              max: 120.0
+              step: 1.0
+              unit_of_measurement: min
+              mode: slider
+    notifications:
+      name: Notifications
+      icon: mdi:bell
+      collapsed: true
+      input:
+        check_delay:
+          name: Charging check after
+          description: 'How long the plug must be on before a bike that is not charging
+            is reported. Checked once per switch-on, and only if the bike was read
+            after the plug was switched on.
+
+            '
+          default: 15
+          selector:
+            number:
+              min: 10.0
+              max: 60.0
+              step: 1.0
+              unit_of_measurement: min
+              mode: slider
+        low_battery_actions:
+          name: When the battery is low
+          description: 'Runs when a new reading drops below the lower limit while
+            the plug is off. If the plug stays off (bike out of range or plug switched
+            off by hand), each new drop below the limit warns again. Variables: bike_name,
+            battery_level.
+
+            '
+          default: []
+          selector:
+            action: {}
+        full_actions:
+          name: When the full charge is done
+          description: 'Runs when a full charge reaches 100 % (or charging stops above
+            94 %). Variables: bike_name, battery_level.
+
+            '
+          default: []
+          selector:
+            action: {}
+        not_charging_actions:
+          name: When the bike does not charge
+          description: 'Runs when the plug has been on for the check time but the
+            bike reports that it is not charging. Variables: bike_name, battery_level.
+
+            '
+          default: []
+          selector:
+            action: {}
+mode: queued
+max: 10
+max_exceeded: silent
+trace:
+  stored_traces: 30
+variables:
+  battery_sensor: !input battery_sensor
+  charging_sensor: !input charging_sensor
+  plug: !input plug
+  low_level: !input low_level
+  high_level: !input high_level
+  off_when_charging_ends: !input off_when_charging_ends
+  full_switch: !input full_charge_switch
+  bike_name: '{% set dev = device_id(battery_sensor) %} {{ (device_attr(dev, ''name_by_user'')
+    or device_attr(dev, ''name'')) if dev else state_attr(battery_sensor, ''friendly_name'')
+    }}
+
+    '
+  battery_level: '{{ states(battery_sensor) }}'
+triggers:
+- trigger: numeric_state
+  entity_id: !input battery_sensor
+  below: !input low_level
+  id: low
+- trigger: state
+  entity_id: !input in_range_sensor
+  to: 'on'
+  not_from:
+  - unavailable
+  - unknown
+  for:
+    minutes: 1
+  id: in_range
+- trigger: numeric_state
+  entity_id: !input battery_sensor
+  above: !input high_level
+  id: full
+- trigger: state
+  entity_id: !input charging_sensor
+  from: 'on'
+  to: 'off'
+  for:
+    minutes: 10
+  id: charging_ended
+- trigger: state
+  entity_id: !input in_range_sensor
+  to: 'off'
+  for:
+    minutes: !input left_delay
+  id: left
+- trigger: state
+  entity_id: !input plug
+  to: 'on'
+  for:
+    minutes: !input check_delay
+  id: check
+- trigger: state
+  entity_id: !input battery_sensor
+  id: reading
+- trigger: state
+  entity_id: !input full_charge_switch
+  from: 'off'
+  to: 'on'
+  id: full_on
+- trigger: state
+  entity_id: !input full_charge_switch
+  from: 'on'
+  to: 'off'
+  id: full_off
+actions:
+- choose:
+  - conditions:
+    - condition: trigger
+      id:
+      - full_on
+      - in_range
+      - reading
+    - '{{ trigger.id != ''reading'' or (trigger.from_state is not none and is_number(trigger.from_state.state))
+      }}'
+    - '{{ full_switch | select(''is_state'', ''on'') | list | count > 0 }}'
+    - condition: numeric_state
+      entity_id: !input battery_sensor
+      below: 100
+    sequence:
+    - if:
+      - condition: state
+        entity_id: !input in_range_sensor
+        state: 'on'
+      - condition: state
+        entity_id: !input plug
+        state: 'off'
+      then:
+      - action: switch.turn_on
+        target:
+          entity_id: !input plug
+  - conditions:
+    - condition: trigger
+      id:
+      - low
+      - in_range
+    - condition: numeric_state
+      entity_id: !input battery_sensor
+      below: !input low_level
+    - '{{ low_level < high_level }}'
+    sequence:
+    - if:
+      - condition: trigger
+        id: low
+      - '{{ trigger.from_state is not none and is_number(trigger.from_state.state)
+        }}'
+      - condition: state
+        entity_id: !input plug
+        state: 'off'
+      then: !input low_battery_actions
+    - if:
+      - condition: state
+        entity_id: !input in_range_sensor
+        state: 'on'
+      - condition: state
+        entity_id: !input plug
+        state: 'off'
+      then:
+      - action: switch.turn_on
+        target:
+          entity_id: !input plug
+  - conditions:
+    - condition: trigger
+      id: reading
+    - '{{ trigger.id != ''reading'' or (trigger.from_state is not none and is_number(trigger.from_state.state))
+      }}'
+    - '{{ full_switch | select(''is_state'', ''on'') | list | count > 0 }}'
+    - condition: numeric_state
+      entity_id: !input battery_sensor
+      above: 99
+    sequence:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: !input full_charge_switch
+    - if:
+      - condition: state
+        entity_id: !input plug
+        state: 'on'
+      then:
+      - action: switch.turn_off
+        target:
+          entity_id: !input plug
+    - sequence: !input full_actions
+  - conditions:
+    - condition: trigger
+      id:
+      - full
+      - full_off
+      - reading
+    - '{{ trigger.id != ''reading'' or (trigger.from_state is not none and is_number(trigger.from_state.state))
+      }}'
+    - '{{ full_switch | select(''is_state'', ''on'') | list | count == 0 }}'
+    - condition: numeric_state
+      entity_id: !input battery_sensor
+      above: !input high_level
+    - condition: state
+      entity_id: !input plug
+      state: 'on'
+    sequence:
+    - action: switch.turn_off
+      target:
+        entity_id: !input plug
+  - conditions:
+    - condition: state
+      entity_id: !input plug
+      state: 'on'
+    - or:
+      - and:
+        - condition: trigger
+          id: charging_ended
+        - '{{ off_when_charging_ends or (full_switch | select(''is_state'', ''on'')
+          | list | count > 0) }}'
+      - condition: trigger
+        id: left
+    sequence:
+    - if:
+      - '{{ full_switch | select(''is_state'', ''on'') | list | count > 0 }}'
+      then:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: !input full_charge_switch
+      - if:
+        - condition: trigger
+          id: charging_ended
+        - condition: numeric_state
+          entity_id: !input battery_sensor
+          above: 94
+        then: !input full_actions
+    - action: switch.turn_off
+      target:
+        entity_id: !input plug
+  - conditions:
+    - condition: trigger
+      id: check
+    - condition: state
+      entity_id: !input in_range_sensor
+      state: 'on'
+    - condition: state
+      entity_id: !input charging_sensor
+      state: 'off'
+    - '{{ states[battery_sensor].last_reported > states[plug].last_changed }}'
+    - '{{ states(battery_sensor) | float(100) < (100 if (full_switch | select(''is_state'',
+      ''on'') | list | count > 0) else high_level) }}'
+    sequence: !input not_charging_actions
