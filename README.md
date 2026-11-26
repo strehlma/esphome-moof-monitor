@@ -62,10 +62,38 @@ The bike only gives out its data after a login with its own 128-bit key. Each
 key has a key ID (usually `1` for the owner's key). See
 [Getting the bike's encryption key](#getting-the-bikes-encryption-key) below.
 
-### 2. Copy the files into ESPHome
+### 2. Add the component to ESPHome
 
-Copy these into your ESPHome configuration folder (in Home Assistant usually
-`/config/esphome/`):
+There are two ways. Option A needs no files copied and is the easiest to update.
+
+**Option A: load it from GitHub (recommended).** Copy `vanmoof-monitor.yaml` into
+your ESPHome configuration folder (in Home Assistant usually `/config/esphome/`)
+and replace its `packages:` and `external_components:` blocks with:
+
+```yaml
+packages:
+  vanmoof:
+    url: https://github.com/strehlma/esphome-moof-monitor
+    ref: v1.11.0          # pin a release; change it to update
+    files:
+      - path: vanmoof/bike.yaml
+        vars:
+          bike_id: bike1
+          bike_name: "Bike 1"
+          mac_address: !secret bike1_mac
+          encryption_key: !secret bike1_encryption_key
+          key_id: !secret bike1_key_id
+      # one more entry like the above per additional bike
+
+external_components:
+  - source: github://strehlma/esphome-moof-monitor@v1.11.0
+    components: [vanmoof_ble]
+```
+
+Keep both `ref` values on the same release: the package checks at build time that
+its version matches the component.
+
+**Option B: copy the files.** Copy these into your ESPHome configuration folder:
 
 ```
 components/vanmoof_ble/
@@ -81,7 +109,7 @@ encryption key and key ID. **Never publish `secrets.yaml`.**
 
 ### 4. Adjust the bikes
 
-In `vanmoof-monitor.yaml`, keep one `bikeN` block per bike and give each a
+In `vanmoof-monitor.yaml`, keep one bike entry per bike and give each a
 `bike_name` (shown in Home Assistant). `bike_id` must be unique and may only
 contain letters, digits and underscores. Remove the second block if you have
 only one bike, or copy it for a third.
@@ -129,8 +157,13 @@ requests one full charge to 100 %. Notifications for low battery, full charge an
 "plug on but the bike does not charge" can be added as actions.
 
 Import it in Home Assistant under *Settings → Automations & scenes → Blueprints →
-Import blueprint* with the raw GitHub URL of the file, or copy it to
-`/config/blueprints/automation/vanmoof_monitor/`.
+Import blueprint* with this URL:
+
+```
+https://github.com/strehlma/esphome-moof-monitor/blob/main/blueprints/automation/vanmoof_monitor/vanmoof_charge.yaml
+```
+
+or copy the file to `/config/blueprints/automation/vanmoof_monitor/`.
 
 ## Troubleshooting
 
